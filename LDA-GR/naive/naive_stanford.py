@@ -1,11 +1,14 @@
 # [TODO] create conda virtual environment for package management
 import os
-os.chdir(os.environ['PROJECT_DIR'])
+# os.chdir(os.environ['PROJECT_DIR'])
 
 import pandas as pd
 import numpy as np
 
 from tqdm import tqdm
+from p_tqdm import p_map # multiprocessing tqdm
+from multiprocessing import Pool
+
 import matplotlib.pyplot as plt
 from graphviz import Source # graphing dependency tree
 
@@ -16,7 +19,7 @@ except:
     stanza.download('en') # download corenlp neural model
     corenlp = stanza.Pipeline('en', processors="tokenize,mwt,pos,lemma,depparse", verbose=False, use_gpu=False)
 
-from datasets import load_dataset # hugging face datasets
+# from datasets import load_dataset # hugging face datasets
 
 import gensim.corpora as corpora
 from gensim import utils
@@ -34,7 +37,7 @@ from lda.LDAMallet import LdaMallet # gensim LDA (gibbs sampling) mallet wrapper
 # use nltk stopwords
 STOP_WORDS = nltk.corpus.stopwords.words('english')
 
-def _get_word_reln_pairs(doc: any) -> list[tuple]:
+def _get_word_reln_pairs(doc):
     '''Loop through sentences and words in sentences to get dependency relationships'''
     
     # add gov or dep based on head
@@ -46,7 +49,7 @@ def _get_word_reln_pairs(doc: any) -> list[tuple]:
     
     return word_reln_pairs
 
-def _process_pairs(pairs: list[tuple], stop_words: list[str] = STOP_WORDS) -> list[tuple]:
+def _process_pairs(pairs, stop_words = STOP_WORDS):# -> list[tuple]:
     '''Remove words that are stop words, non-alphabetic, and less than 3 characters long'''
     
     valid_word = lambda word: not word in stop_words and word.isalpha() and len(word) > 2
@@ -60,7 +63,7 @@ def _process_pairs(pairs: list[tuple], stop_words: list[str] = STOP_WORDS) -> li
     
     return processed_pairs
 
-def _concatenate_pairs(pairs: list[tuple], sep: str = "%") -> list[str]:
+def _concatenate_pairs(pairs, sep= "%"):# -> list[str]:
     '''Join dependency relational pairs into single strings using seperator'''
     
     join_tuple = lambda pair: sep.join(pair)
@@ -68,7 +71,7 @@ def _concatenate_pairs(pairs: list[tuple], sep: str = "%") -> list[str]:
     
     return strs
 
-def coherence_optimization(tokens: list[any], id2word: dict, corpus: list[any], topics_range: iter) -> tuple[list[any], list[any]]:
+def coherence_optimization(tokens, id2word, corpus, topics_range):# -> tuple[list[any], list[any]]:
     '''
     Description
         Perform coherence optimization on LDA Mallet model. This finds the model that has the best coherence
@@ -94,7 +97,7 @@ def coherence_optimization(tokens: list[any], id2word: dict, corpus: list[any], 
     
     return model_list, coherence_values
 
-def get_tokens(text: str) -> list[str]:
+def get_tokens(text):# str) -> list[str]:
     '''Obtain concatenated dependency relational pairs of text'''
 
     doc = corenlp(text)
@@ -112,7 +115,7 @@ def get_topics(model: any, n_topics: int) -> dict:
     
     return topics_dict
 
-def get_doc_top_matrix(model: any, n_topics: int) -> list[any]:
+def get_doc_top_matrix(model, n_topics):# any, n_topics: int) -> list[any]:
     '''Sort document topic matrix and add probability of 0 for topics that aren't included in documents'''
 
     doc_top_matrix = [*model.load_document_topics()]
@@ -128,3 +131,27 @@ def get_doc_top_matrix(model: any, n_topics: int) -> list[any]:
     doc_top_matrix = [sorted(arr) for arr in new_doc_top_matrix]
     
     return doc_top_matrix
+
+# [NOTE]: No longer needed
+# def main():
+#     # load dataset
+#     # [TODO]: use scraped dataset
+#     dailymail = load_dataset('cnn_dailymail', '2.0.0') # https://huggingface.co/datasets/cnn_dailymail/viewer/2.0.0/
+#     texts = dailymail['train']['article'][:2000]
+
+#     # process corpus 
+#     tokens = p_map(get_tokens, texts)
+
+#     # run Mallet LDA model on relational pairs and perform coherence optimization
+#     id2word = corpora.Dictionary(tokens)
+#     corpus = list(map(lambda x: id2word.doc2bow(x), tokens))
+#     model_list, coherence_values = coherence_optimization(tokens, id2word, corpus, range(5, 31, 5))
+
+#     # use highest coherence value for main model
+#     model = model_list[np.argmax(coherence_values)]
+
+#     # get document topic matrix
+#     doc_top_matrix = get_doc_top_matrix(model, 5)
+
+#     with open('model/naive_model.pkl', 'wb') as f:
+#         pickle.dump(model, f)
