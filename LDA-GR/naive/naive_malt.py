@@ -1,14 +1,23 @@
 import os
-os.chdir(os.environ['PROJECT_DIR'])
+# os.chdir(os.environ['PROJECT_DIR'])
 
 from graphviz import Source
-from datasets import load_dataset # hugging face datasets
+# from datasets import load_dataset # hugging face datasets
 from tqdm import tqdm
 import pickle
 import pandas as pd
 import numpy as np
 
+from naive.naive_stanford import get_tokens
+
+from nltk.tokenize import RegexpTokenizer
+from nltk.corpus import stopwords
+# from nltk.stem import WordNetLemmatizer
+# from nltk.corpus import wordnet
+
+
 import nltk
+nltk.download('punkt')
 try:
     nltk.corpus.stopwords.words('english')
 except LookupError:
@@ -23,24 +32,33 @@ from gensim.models.coherencemodel import CoherenceModel
 from malt.malt import MaltParser # source code from nltk library
 from lda.LDAMallet import LdaMallet # source code for gensim LDA (gibbs sampling) mallet wrapper 
 
-import naive_stanford
 
-def reduce_parser(parser: any) -> list[any]:
+
+import re
+
+def reduce_parser(parser):# any) -> list[any]:
     ''' Reduce iter of iters into list of dependency trees'''
     return [next(list_it) for list_it in parser]
 
-def tokenize_doc(doc: str) -> list[list[str]]:
+def tokenize_doc(doc):# str) -> list[list[str]]:
     ''' Tokenize document into sentences represented as tokens '''
     return [nltk.word_tokenize(sent) for sent in nltk.sent_tokenize(doc)]
 
-def tag_sents(sents: list[list[str]]) -> list[list[str]]:
+def tag_sents(sents):# list[list[str]]) -> list[list[str]]:
     ''' POS tag sentences '''
     return list(map(pos_tag, sents))
 
-def get_dependency_trees(docs: str, malt_parser_version='maltparser-1.7.2', model_version='engmalt.linear-1.7.mco') -> list[list[any]]:
+def get_dependency_trees(docs: str, malt_parser_version='maltparser-1.7.1', model_version='engmalt.linear-1.7.mco'):# -> list[list[any]]:
     ''' Calculate dependency relation trees using malt parser '''
     # initalize malt parser model
     mp = MaltParser(malt_parser_version, model_version, tagger=nltk.pos_tag)
+    #preprocessing :
+    # replace single smart quote with single straight quote, so as to catch stopword contractions
+    docs = [re.sub("[\u2018\u2019]", "'", doc) for doc in docs] #replace qoute with regualar qoutations
+    #it removes the digits
+    # docs = [re.sub('\d+', '', doc) for doc in docs] 
+    docs = [re.sub('(\/.*?\.[\w:]+)', '', doc) for doc in docs]
+    docs = [re.sub(r"http\S+", '', doc) for doc in docs]
     
     # create <doc_idx, tokenized_sent> list of sents
     sents = [
@@ -48,14 +66,27 @@ def get_dependency_trees(docs: str, malt_parser_version='maltparser-1.7.2', mode
         for i, doc in enumerate(docs)
         for sent in nltk.sent_tokenize(utils.to_unicode(str(doc).lower())) # convert doc to lowercase, and sentence tokenized.
     ]
+    sep= "%"
       
     # unzip list of tuples
     doc_idxs, sents = zip(*sents)
-    
+#     print(doc_idxs)
+#     print(sents)
+#     print('+++00000+++', sents)
     # create parser <generator> and loop through parser to produce dependency tree for each sentence
     parser = mp.parse_sents(sents, verbose=True)
-
-    # define valid word
+    
+    # set the stop words..
+    #read all the stop words and add them to the list of extra stop words..
+    extra_stop_words = open('Stopword_list', 'r')
+    #addiong some stop words...
+    extra_stop_words_list = extra_stop_words.readlines()
+    stop_words = set()
+    for item in extra_stop_words_list:
+        stop_words.add(item.strip())
+    stop_words.add('amp');stop_words.add('&amp');stop_words.add('&amp;')
+    # define valid word -- this is the pre-processing part
+    
     valid_word = lambda word: not word in stop_words and word.isalpha() and len(word) > 2
     # initialize document hashmap
     doc_reln_pairs = {i:[] for i in set(doc_idxs)}
@@ -63,18 +94,24 @@ def get_dependency_trees(docs: str, malt_parser_version='maltparser-1.7.2', mode
     i = 0
     for list_it in tqdm(parser):
         tree = next(list_it)
+        if i == len(sents):
+            break
         try:
+            # why this part is not working...
             tree.tree()
         except:
-            doc_reln_pairs[doc_idxs[i]].extend(naive_stanford.get_tokens(text))
+#             print(' *******',sents)
+            text =' '.join(sents[i])
+            doc_reln_pairs[doc_idxs[i]].extend(get_tokens(text))
             continue
 
         for gov, reln, dep in tree.triples():
         # [NOTE]: No londer needed due to pre-processing already occuring
-        #     # if not valid_word(gov[0]) or not valid_word(dep[0]):
-        #     #     continue
-
+            if not valid_word(gov[0]) or not valid_word(dep[0]):
+                continue
+            sep= "%"
             doc_reln_pairs[doc_idxs[i]].extend([f"{gov[0]}{sep}{reln}.gov", f"{dep[0]}{sep}{reln}.dep"])
+#             doc_reln_pairs[doc_idxs[i]].extend([f"{gov[0]}{sep}{reln}.gov", f"{dep[0]}{sep}{reln}.dep"])
 
         i += 1
     
